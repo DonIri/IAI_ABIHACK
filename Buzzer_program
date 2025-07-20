@@ -1,0 +1,53 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+#define BUZZER_PIN 12
+
+// Définir l'adresse I2C de l'écran LCD (généralement 0x27 ou 0x3F)
+LiquidCrystal_I2C lcd(0x27, 16, 2);  // Adresse I2C, 16 colonnes, 2 lignes
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(BUZZER_PIN, OUTPUT);
+  noTone(BUZZER_PIN);
+
+  // Initialiser l'écran LCD
+  lcd.begin(16, 2);  // Initialiser un écran LCD 16x2
+  lcd.backlight();   // Activer le rétroéclairage (si nécessaire)
+  lcd.clear();       // Effacer l'écran
+}
+
+void loop() {
+  if (Serial.available() > 0) {
+    String detectedClass = Serial.readStringUntil('\n');
+    detectedClass.trim();
+    Serial.println("Received: " + detectedClass);  // Afficher dans la console série
+
+    // Vérifier si l'Arduino reçoit bien la classe
+    if (detectedClass.length() > 0) {
+      // Afficher le nom de l'animal sur l'écran LCD
+      lcd.clear();
+      lcd.setCursor(0, 0);  // Positionner le curseur à la première ligne
+      lcd.print("Animal: ");  // Afficher "Animal: "
+      lcd.setCursor(0, 1);  // Aller à la deuxième ligne
+      lcd.print(detectedClass);  // Afficher le nom de l'animal
+
+      // Contrôler le buzzer en fonction de l'animal détecté
+      if (detectedClass == "person") {
+        tone(BUZZER_PIN, 2000);  // Fréquence pour la personne
+      } else if (detectedClass == "bird") {
+        tone(BUZZER_PIN, 4000);  // Fréquence pour l'oiseau
+      } else if (detectedClass == "cat") {
+        tone(BUZZER_PIN, 3000);  // Fréquence pour le chat
+      } else if (detectedClass == "dog") {
+        tone(BUZZER_PIN, 2500);  // Fréquence pour le chien
+      } else {
+        noTone(BUZZER_PIN);  // Arrêter le buzzer pour les classes inconnues
+      }
+    } else {
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("None");
+    }
+  }
+}
