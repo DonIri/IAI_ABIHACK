@@ -1,0 +1,78 @@
+import serial
+import time
+import torch
+from utils.general import non_max_suppression, scale_boxes
+from utils.torch_utils import select_device
+from utils.dataloaders import LoadStreams
+
+# Configuration4
+yolo_WEIGHTS = "yolov5s.pt"
+SERIAL_PORT = "COM5"
+BAUD_RATE = 115200
+CONF_THRESHOLD = 0.25
+IOU_THRESHOLD = 0.45
+IMG_SIZE = 640
+CLASSES_TO_DETECT = [0, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]  # Person and animals
+
+# python detect17.py --weights yolov5s.pt --source http://10.214.61.48:81/stream
+# Initialize yolov5 model
+device = select_device("")
+model = torch.hub.load("ultralytics/yolov5", "custom", path=yolo_WEIGHTS, force_reload=True).to(device)
+model.conf = CONF_THRESHOLD
+model.iou = IOU_THRESHOLD
+
+# Initialize Serial Communication
+ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+time.sleep(2)  # Wait for the serial connection to initialize
+
+# Start video stream
+# Use webcam (change 0 to a video path if needed)
+dataset = LoadStreams("http://10.214.61.48:81/stream", img_size=IMG_SIZE)
+
+print("Starting detection...")
+previous_detection = None
+no_animal_detected = True  # Flag to track if an animal is detected
+
+for path, img, img0s, vid_cap, s in dataset:
+    # Preprocess image
+    img = torch.from_numpy(img).to(device).float() / 255.0
+    if img.ndimension() == 3:
+        img = img.unsqueeze(0)
+
+    # Inference
+    pred = model(img, augment=False)[0]
+
+    # Add batch dimension if missing
+    if pred.ndimension() == 2:
+        pred = pred.unsqueeze(0)
+
+    # Apply non-max suppression
+    pred = non_max_suppression(pred, conf_thres=CONF_THRESHOLD, iou_thres=IOU_THRESHOLD, classes=CLASSES_TO_DETECT)
+
+    detected_animal = False  # Flag to check if any animal is detected in this frame
+
+    for det in pred:
+        if len(det):
+            # Rescale boxes to original image size
+            img0s = img0s[0] if isinstance(img0s, list) else img0s  # Ensure img0s is a tensor (not a list)
+            det[:, :4] = scale_boxes(img.shape[2:], det[:, :4], img0s.shape).round()
+            for *xyxy, conf, cls in reversed(det):
+                class_name = model.names[int(cls)]
+                detected_animal = True
+                if class_name != previous_detection:
+                    # Send class name to Arduino
+                    ser.write(f"{class_name}\n".encode("utf-8"))
+                    previous_detection = class_name
+                    print(f"Sent to Arduino: {class_name}")
+                    break
+
+    # If no animal is detected, send "none" to stop the buzzer
+    if not detected_animal:
+        if not no_animal_detected:
+            ser.write("none\n".encode("utf-8"))
+            no_animal_detected = True
+            print("Sent to Arduino: none (none)")
+    else:
+        no_animal_detected = False
+
+ser.close()
